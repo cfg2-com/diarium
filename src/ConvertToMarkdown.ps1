@@ -54,6 +54,49 @@ function Log-Message {
     }
 }
 
+function Normalize-SpecialCharacters {
+    param(
+        [string]$Text
+    )
+    
+    if ([string]::IsNullOrWhiteSpace($Text)) {
+        return $Text
+    }
+    
+    # Handle literal Unicode escape sequences in the string
+    $Text = $Text -replace '\\u2018', "'"  # \u2018 literal
+    $Text = $Text -replace '\\u2019', "'"  # \u2019 literal
+    $Text = $Text -replace '\\u201C', '"'  # \u201C literal
+    $Text = $Text -replace '\\u201D', '"'  # \u201D literal
+    $Text = $Text -replace '\\u201E', '"'  # \u201E literal
+    $Text = $Text -replace '\\u201F', '"'  # \u201F literal
+    $Text = $Text -replace '\\u2013', '-'  # \u2013 literal
+    $Text = $Text -replace '\\u2014', '-'  # \u2014 literal
+    $Text = $Text -replace '\\u2026', '...'  # \u2026 literal
+    $Text = $Text -replace '\\u00A0', ' '  # \u00A0 literal
+    
+    # Handle actual Unicode characters
+    $Text = $Text -replace '\u2018', "'"  # left single quotation mark
+    $Text = $Text -replace '\u2019', "'"  # right single quotation mark
+    $Text = $Text -replace '`', "'"       # backtick
+    
+    $Text = $Text -replace '\u201C', '"'  # left double quotation mark
+    $Text = $Text -replace '\u201D', '"'  # right double quotation mark
+    $Text = $Text -replace '\u201E', '"'  # double low-9 quotation mark (German)
+    $Text = $Text -replace '\u201F', '"'  # double high-reversed-9 quotation mark
+    
+    $Text = $Text -replace '\u2013', '-'  # en-dash
+    $Text = $Text -replace '\u2014', '-'  # em-dash
+    
+    $Text = $Text -replace '\u2026', '...'  # ellipsis
+    
+    $Text = $Text -replace '\u00A0', ' '  # non-breaking space
+    
+    return $Text
+}
+
+
+
 $configPath = Join-Path -Path $PSScriptRoot -ChildPath 'config.psd1'
 
 if ([string]::IsNullOrWhiteSpace($ZipFolder) -and (Test-Path -LiteralPath $configPath)) {
@@ -102,7 +145,7 @@ if ($null -eq $zipFile -and $null -eq $convertedZipFile) {
 $zipFileBaseName = if ($null -ne $zipFile) { 
     [System.IO.Path]::GetFileNameWithoutExtension($zipFile.Name) 
 } else { 
-    [System.IO.Path]::GetFileNameWithoutExtension($convertedZipFile.Name -replace '\.converted$', '')
+    [System.IO.Path]::GetFileNameWithoutExtension(($convertedZipFile.Name -replace '\.converted$', ''))
 }
 $logFilePath = Join-Path -Path $diariumFolder -ChildPath "ConvertToMarkdown-$zipFileBaseName.log"
 
@@ -183,7 +226,7 @@ Log-Message "Found JSON file: $($jsonFile.Name)"
 Log-Message "Parsing JSON file..."
 
 try {
-    $json = Get-Content -LiteralPath $jsonFile.FullName -Raw | ConvertFrom-Json
+    $json = Get-Content -LiteralPath $jsonFile.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
     # Ensure entries is an array
     if ($json -is [array]) {
         [array]$entries = $json
@@ -228,6 +271,9 @@ foreach ($entry in $entries) {
     $html = if ($entry | Get-Member -Name html -ErrorAction SilentlyContinue) { $entry.html } else { $null }
     $attachments = if ($entry | Get-Member -Name attachments -ErrorAction SilentlyContinue) { $entry.attachments } else { $null }
     $location = if ($entry | Get-Member -Name location -ErrorAction SilentlyContinue) { $entry.location } else { $null }
+    
+    # Normalize special characters in heading
+    $heading = Normalize-SpecialCharacters -Text $heading
     
     # Skip entries without required fields
     if ([string]::IsNullOrWhiteSpace($dateString)) {
@@ -384,27 +430,35 @@ foreach ($entry in $entries) {
     $latitude = if ($locationArray.Length -gt 0) { $locationArray[0] } else { $null }
     $longitude = if ($locationArray.Length -gt 1) { $locationArray[1] } else { $null }
     
+    # Build header first to determine the title to use in frontmatter
+    $titleForFrontmatter = ""
+    if ([string]::IsNullOrWhiteSpace($heading)) {
+        $dayOfWeek = $date.ToString('ddd')
+        $header = "# $year-$month-$day - $dayOfWeek"
+        $titleForFrontmatter = "$year-$month-$day - $dayOfWeek"
+    }
+    else {
+        $header = "# $heading"
+        $titleForFrontmatter = $heading
+    }
+    
     $frontmatter = @"
 ---
-title: $(if ([string]::IsNullOrWhiteSpace($heading)) { "" } else { $heading })
+title: $titleForFrontmatter
 date: $dateString
 latitude: $(if ($null -ne $latitude) { $latitude } else { "" })
 longitude: $(if ($null -ne $longitude) { $longitude } else { "" })
 ---
 "@
     
-    # Build header
-    if ([string]::IsNullOrWhiteSpace($heading)) {
-        $dayOfWeek = $date.ToString('ddd')
-        $header = "# $year-$month-$day - $dayOfWeek"
-    }
-    else {
-        $header = "# $heading"
-    }
-    
     # Convert HTML to plain text (simple approach: remove tags, decode entities)
     $content = $html -replace '<[^>]+>', '' -replace '&nbsp;', ' ' -replace '&lt;', '<' -replace '&gt;', '>' -replace '&amp;', '&'
+    
+    # Normalize special characters
+    $content = Normalize-SpecialCharacters -Text $content
+    
     $content = $content -replace '\s+', ' '
+
     
     # Build location section with embedded map if latitude and longitude are present
     $locationSection = ""
@@ -442,4 +496,165 @@ Write-Host "Markdown conversion completed. Files created in '$diariumFolder'"
 Write-Host ""
 Write-Host "Entries Written/Skipped: $entriesWritten/$entriesSkipped"
 Write-Host "Attachments Written/Skipped: $attachmentsWritten/$attachmentsSkipped"
+
+# Generate index files
+Log-Message "================================"
+Log-Message "Generating index files"
+Log-Message "================================"
+
+function Get-H1HeaderFromMarkdown {
+    param([string]$FilePath)
+    
+    try {
+        $lines = Get-Content -LiteralPath $FilePath -ErrorAction Stop
+        
+        # Extract title from YAML frontmatter
+        $inFrontmatter = $false
+        foreach ($line in $lines) {
+            if ($line -eq '---') {
+                if ($inFrontmatter) {
+                    break
+                }
+                $inFrontmatter = $true
+            }
+            elseif ($inFrontmatter -and $line -match '^\s*title:\s*(.+?)\s*$') {
+                $title = $matches[1].Trim()
+                # Remove surrounding quotes if present (for backward compatibility)
+                $title = $title -replace '^"(.*)"$', '$1'
+                $title = $title -replace "^'(.*)'$", '$1'
+                if ($title) {
+                    return $title
+                }
+            }
+        }
+        
+        return $null
+    }
+    catch {
+        Log-Message "Warning: Error reading file $FilePath : $_"
+        return $null
+    }
+}
+
+function Generate-MonthIndex {
+    param(
+        [string]$MonthFolder,
+        [int]$Year,
+        [string]$Month
+    )
+    
+    $indexPath = Join-Path -Path $MonthFolder -ChildPath '_index.md'
+    
+    if (-not (Test-Path -LiteralPath $MonthFolder)) {
+        Log-Message "Month folder does not exist: $MonthFolder, skipping"
+        return
+    }
+    
+    $entries = @(Get-ChildItem -Path $MonthFolder -Filter '*.md' -ErrorAction SilentlyContinue | 
+        Where-Object { $_.Name -ne '_index.md' } | 
+        Sort-Object Name)
+    
+    if ($entries.Count -eq 0) {
+        return
+    }
+    
+    $monthName = [datetime]::ParseExact("$Year-$Month", "yyyy-MM", $null).ToString('MMMM')
+    
+    $content = "# $Year - $monthName`n`n"
+    $content += "## Entries`n`n"
+    
+    foreach ($entry in $entries) {
+        $heading = Get-H1HeaderFromMarkdown -FilePath $entry.FullName
+        if ($null -eq $heading) {
+            $heading = $entry.Name -replace '\.md$', ''
+        }
+        
+        $relativePath = $entry.Name
+        $content += "- [$heading](./$relativePath)`n"
+    }
+    
+    # Always overwrite index files (regardless of Overwrite parameter)
+    Set-Content -LiteralPath $indexPath -Value $content -Encoding UTF8 -Force
+    Log-Message "Generated: $indexPath"
+}
+
+function Generate-YearIndex {
+    param(
+        [string]$YearFolder,
+        [int]$Year
+    )
+    
+    $indexPath = Join-Path -Path $YearFolder -ChildPath '_index.md'
+    $monthFolders = @(Get-ChildItem -Path $YearFolder -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^\d{2}$' } | Sort-Object Name)
+    
+    if ($monthFolders.Count -eq 0) {
+        return
+    }
+    
+    $content = "# $Year`n`n"
+    $content += "## Months`n`n"
+    
+    foreach ($monthFolder in $monthFolders) {
+        $monthName = [datetime]::ParseExact("$Year-$($monthFolder.Name)", "yyyy-MM", $null).ToString('MMMM')
+        $content += "- [$monthName](./$($monthFolder.Name)/_index.md)`n"
+    }
+    
+    # Always overwrite index files (regardless of Overwrite parameter)
+    Set-Content -LiteralPath $indexPath -Value $content -Encoding UTF8 -Force
+    Log-Message "Generated: $indexPath"
+}
+
+function Generate-RootIndex {
+    param([string]$RootFolder)
+    
+    $indexPath = Join-Path -Path $RootFolder -ChildPath '_index.md'
+    $yearFolders = @(Get-ChildItem -Path $RootFolder -Directory -ErrorAction SilentlyContinue | 
+        Where-Object { $_.Name -match '^\d{4}$' } | 
+        Sort-Object Name -Descending)
+    
+    if ($yearFolders.Count -eq 0) {
+        return
+    }
+    
+    $content = "# Diarium Entries`n`n"
+    $content += "## Years`n`n"
+    
+    foreach ($yearFolder in $yearFolders) {
+        $year = $yearFolder.Name
+        $content += "- [$year](./$year/_index.md)`n"
+    }
+    
+    # Always overwrite index files (regardless of Overwrite parameter)
+    Set-Content -LiteralPath $indexPath -Value $content -Encoding UTF8 -Force
+    Log-Message "Generated: $indexPath"
+}
+
+# Generate root index
+Log-Message "Generating root index"
+Generate-RootIndex -RootFolder $diariumFolder
+
+# Process each year folder and generate indexes
+$yearFolders = @(Get-ChildItem -Path $diariumFolder -Directory -ErrorAction SilentlyContinue | 
+    Where-Object { $_.Name -match '^\d{4}$' } | 
+    Sort-Object Name)
+
+foreach ($yearFolder in $yearFolders) {
+    $year = [int]$yearFolder.Name
+    
+    # Generate year index
+    Generate-YearIndex -YearFolder $yearFolder.FullName -Year $year
+    
+    # Process each month folder
+    $monthFolders = @(Get-ChildItem -Path $yearFolder.FullName -Directory -ErrorAction SilentlyContinue | 
+        Where-Object { $_.Name -match '^\d{2}$' } | 
+        Sort-Object Name)
+    
+    foreach ($monthFolder in $monthFolders) {
+        $month = $monthFolder.Name
+        # Generate month index
+        Generate-MonthIndex -MonthFolder $monthFolder.FullName -Year $year -Month $month
+    }
+}
+
+Log-Message "Index generation completed"
 
