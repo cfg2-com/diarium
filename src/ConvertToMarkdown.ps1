@@ -205,18 +205,63 @@ longitude: $(if ($null -ne $longitude) { $longitude } else { "" })
         $attachmentsSection = "`n`n## Attachments`n"
         foreach ($attachment in $attachmentsArray) {
             $fileName = Split-Path -Path $attachment -Leaf
+            $fileExtension = [System.IO.Path]::GetExtension($fileName).ToLower()
+            
+            # Prefix filename with "z" so media files appear below markdown files
+            $prefixedFileName = "z_$fileName"
             
             # Copy the attachment file from media folder to markdown folder
             $sourceFile = Join-Path -Path $ZipFolder -ChildPath $attachment
-            $destFile = Join-Path -Path $monthFolder -ChildPath $fileName
+            $destFile = Join-Path -Path $monthFolder -ChildPath $prefixedFileName
             
             if (Test-Path -LiteralPath $sourceFile) {
                 Copy-Item -LiteralPath $sourceFile -Destination $destFile -Force | Out-Null
-                $attachmentsSection += "`n![$fileName](./$fileName)`n"
+                
+                # Handle different media types
+                if ($fileExtension -eq '.mp4') {
+                    # MP4 videos - embed with HTML5 video tag
+                    $attachmentsSection += "`n<video width=`"100%`" controls>`n"
+                    $attachmentsSection += "  <source src=`"./$prefixedFileName`" type=`"video/mp4`">`n"
+                    $attachmentsSection += "  Your browser does not support the video tag.`n"
+                    $attachmentsSection += "</video>`n"
+                }
+                elseif ($fileExtension -eq '.webm') {
+                    # WebM videos - embed with HTML5 video tag
+                    $attachmentsSection += "`n<video width=`"100%`" controls>`n"
+                    $attachmentsSection += "  <source src=`"./$prefixedFileName`" type=`"video/webm`">`n"
+                    $attachmentsSection += "  Your browser does not support the video tag.`n"
+                    $attachmentsSection += "</video>`n"
+                }
+                elseif ($fileExtension -in @('.avi', '.mov', '.mkv', '.flv')) {
+                    # Other video formats - create link since they may not be natively supported
+                    $attachmentsSection += "`n[🎬 $fileName](./$prefixedFileName)`n"
+                }
+                else {
+                    # Image files and others - embed as image
+                    $attachmentsSection += "`n![$fileName](./$prefixedFileName)`n"
+                }
             }
             else {
                 Write-Warning "Attachment not found: $sourceFile"
-                $attachmentsSection += "`n![$fileName](./$attachment)`n"
+                # Still add reference even if file not found
+                if ($fileExtension -eq '.mp4') {
+                    $attachmentsSection += "`n<video width=`"100%`" controls>`n"
+                    $attachmentsSection += "  <source src=`"./$prefixedFileName`" type=`"video/mp4`">`n"
+                    $attachmentsSection += "  Your browser does not support the video tag.`n"
+                    $attachmentsSection += "</video>`n"
+                }
+                elseif ($fileExtension -eq '.webm') {
+                    $attachmentsSection += "`n<video width=`"100%`" controls>`n"
+                    $attachmentsSection += "  <source src=`"./$prefixedFileName`" type=`"video/webm`">`n"
+                    $attachmentsSection += "  Your browser does not support the video tag.`n"
+                    $attachmentsSection += "</video>`n"
+                }
+                elseif ($fileExtension -in @('.avi', '.mov', '.mkv', '.flv')) {
+                    $attachmentsSection += "`n[🎬 $fileName](./$prefixedFileName)`n"
+                }
+                else {
+                    $attachmentsSection += "`n![$fileName](./$prefixedFileName)`n"
+                }
             }
         }
     }
