@@ -146,6 +146,12 @@ if (-not (Test-Path -LiteralPath $diariumFolder)) {
 
 Write-Host "Created Diarium folder at '$diariumFolder'"
 
+# Initialize counters for statistics
+$entriesWritten = 0
+$entriesSkipped = 0
+$attachmentsWritten = 0
+$attachmentsSkipped = 0
+
 # Process each entry
 foreach ($entry in $entries) {
     $dateString = $entry.date
@@ -191,9 +197,92 @@ foreach ($entry in $entries) {
     $fileName = "$year-$month-$day - $timeFormatted.md"
     $filePath = Join-Path -Path $monthFolder -ChildPath $fileName
     
+    # Build attachments section and copy files (do this first so we track attachments even if entry is skipped)
+    $attachmentsSection = ""
+    $datePrefix = "$year-$month-$day"
+    [array]$attachmentsArray = @($attachments)
+    if ($attachmentsArray.Length -gt 0) {
+        $attachmentsSection = "`n`n## Attachments`n"
+        foreach ($attachment in $attachmentsArray) {
+            $attFileName = Split-Path -Path $attachment -Leaf
+            $fileExtension = [System.IO.Path]::GetExtension($attFileName).ToLower()
+            $baseFileName = [System.IO.Path]::GetFileNameWithoutExtension($attFileName)
+            $prefixedFileName = "$datePrefix`_$baseFileName$fileExtension"
+            
+            # Copy the attachment file from media folder to attachments subfolder with date prefix
+            $sourceFile = Join-Path -Path $ZipFolder -ChildPath $attachment
+            $destFile = Join-Path -Path $attachmentsFolder -ChildPath $prefixedFileName
+            
+            # Check if destination exists and Overwrite is false
+            $shouldCopy = $true
+            if ((Test-Path -LiteralPath $destFile) -and -not $Overwrite) {
+                Write-Host "Skipped: $destFile"
+                $attachmentsSkipped++
+                $shouldCopy = $false
+            }
+            else {
+                # Destination doesn't exist (or Overwrite is true), so this will be written/copied
+                $attachmentsWritten++
+            }
+            
+            if (Test-Path -LiteralPath $sourceFile) {
+                if ($shouldCopy) {
+                    Copy-Item -LiteralPath $sourceFile -Destination $destFile -Force | Out-Null
+                }
+                
+                # Handle different media types
+                if ($fileExtension -eq '.mp4') {
+                    # MP4 videos - embed with HTML5 video tag
+                    $attachmentsSection += "`n<video width=`"100%`" controls>`n"
+                    $attachmentsSection += "  <source src=`"./attachments/$prefixedFileName`" type=`"video/mp4`">`n"
+                    $attachmentsSection += "  Your browser does not support the video tag.`n"
+                    $attachmentsSection += "</video>`n"
+                }
+                elseif ($fileExtension -eq '.webm') {
+                    # WebM videos - embed with HTML5 video tag
+                    $attachmentsSection += "`n<video width=`"100%`" controls>`n"
+                    $attachmentsSection += "  <source src=`"./attachments/$prefixedFileName`" type=`"video/webm`">`n"
+                    $attachmentsSection += "  Your browser does not support the video tag.`n"
+                    $attachmentsSection += "</video>`n"
+                }
+                elseif ($fileExtension -in @('.avi', '.mov', '.mkv', '.flv')) {
+                    # Other video formats - create link since they may not be natively supported
+                    $attachmentsSection += "`n[🎬 $attFileName](./attachments/$prefixedFileName)`n"
+                }
+                else {
+                    # Image files and others - embed as image
+                    $attachmentsSection += "`n![$attFileName](./attachments/$prefixedFileName)`n"
+                }
+            }
+            else {
+                Write-Warning "Attachment not found: $sourceFile"
+                # Still add reference even if file not found
+                if ($fileExtension -eq '.mp4') {
+                    $attachmentsSection += "`n<video width=`"100%`" controls>`n"
+                    $attachmentsSection += "  <source src=`"./attachments/$prefixedFileName`" type=`"video/mp4`">`n"
+                    $attachmentsSection += "  Your browser does not support the video tag.`n"
+                    $attachmentsSection += "</video>`n"
+                }
+                elseif ($fileExtension -eq '.webm') {
+                    $attachmentsSection += "`n<video width=`"100%`" controls>`n"
+                    $attachmentsSection += "  <source src=`"./attachments/$prefixedFileName`" type=`"video/webm`">`n"
+                    $attachmentsSection += "  Your browser does not support the video tag.`n"
+                    $attachmentsSection += "</video>`n"
+                }
+                elseif ($fileExtension -in @('.avi', '.mov', '.mkv', '.flv')) {
+                    $attachmentsSection += "`n[🎬 $attFileName](./attachments/$prefixedFileName)`n"
+                }
+                else {
+                    $attachmentsSection += "`n![$attFileName](./attachments/$prefixedFileName)`n"
+                }
+            }
+        }
+    }
+    
     # Check if file exists and Overwrite is false
     if ((Test-Path -LiteralPath $filePath) -and -not $Overwrite) {
         Write-Host "Skipped: $filePath"
+        $entriesSkipped++
         continue
     }
     
@@ -224,83 +313,6 @@ longitude: $(if ($null -ne $longitude) { $longitude } else { "" })
     $content = $html -replace '<[^>]+>', '' -replace '&nbsp;', ' ' -replace '&lt;', '<' -replace '&gt;', '>' -replace '&amp;', '&'
     $content = $content -replace '\s+', ' '
     
-    # Build attachments section and copy files
-    $attachmentsSection = ""
-    $datePrefix = "$year-$month-$day"
-    [array]$attachmentsArray = @($attachments)
-    if ($attachmentsArray.Length -gt 0) {
-        $attachmentsSection = "`n`n## Attachments`n"
-        foreach ($attachment in $attachmentsArray) {
-            $fileName = Split-Path -Path $attachment -Leaf
-            $fileExtension = [System.IO.Path]::GetExtension($fileName).ToLower()
-            $baseFileName = [System.IO.Path]::GetFileNameWithoutExtension($fileName)
-            $prefixedFileName = "$datePrefix`_$baseFileName$fileExtension"
-            
-            # Copy the attachment file from media folder to attachments subfolder with date prefix
-            $sourceFile = Join-Path -Path $ZipFolder -ChildPath $attachment
-            $destFile = Join-Path -Path $attachmentsFolder -ChildPath $prefixedFileName
-            
-            # Check if destination exists and Overwrite is false
-            $shouldCopy = $true
-            if ((Test-Path -LiteralPath $destFile) -and -not $Overwrite) {
-                Write-Host "Skipped: $destFile"
-                $shouldCopy = $false
-            }
-            
-            if (Test-Path -LiteralPath $sourceFile) {
-                if ($shouldCopy) {
-                    Copy-Item -LiteralPath $sourceFile -Destination $destFile -Force | Out-Null
-                }
-                
-                # Handle different media types
-                if ($fileExtension -eq '.mp4') {
-                    # MP4 videos - embed with HTML5 video tag
-                    $attachmentsSection += "`n<video width=`"100%`" controls>`n"
-                    $attachmentsSection += "  <source src=`"./attachments/$prefixedFileName`" type=`"video/mp4`">`n"
-                    $attachmentsSection += "  Your browser does not support the video tag.`n"
-                    $attachmentsSection += "</video>`n"
-                }
-                elseif ($fileExtension -eq '.webm') {
-                    # WebM videos - embed with HTML5 video tag
-                    $attachmentsSection += "`n<video width=`"100%`" controls>`n"
-                    $attachmentsSection += "  <source src=`"./attachments/$prefixedFileName`" type=`"video/webm`">`n"
-                    $attachmentsSection += "  Your browser does not support the video tag.`n"
-                    $attachmentsSection += "</video>`n"
-                }
-                elseif ($fileExtension -in @('.avi', '.mov', '.mkv', '.flv')) {
-                    # Other video formats - create link since they may not be natively supported
-                    $attachmentsSection += "`n[🎬 $fileName](./attachments/$prefixedFileName)`n"
-                }
-                else {
-                    # Image files and others - embed as image
-                    $attachmentsSection += "`n![$fileName](./attachments/$prefixedFileName)`n"
-                }
-            }
-            else {
-                Write-Warning "Attachment not found: $sourceFile"
-                # Still add reference even if file not found
-                if ($fileExtension -eq '.mp4') {
-                    $attachmentsSection += "`n<video width=`"100%`" controls>`n"
-                    $attachmentsSection += "  <source src=`"./attachments/$prefixedFileName`" type=`"video/mp4`">`n"
-                    $attachmentsSection += "  Your browser does not support the video tag.`n"
-                    $attachmentsSection += "</video>`n"
-                }
-                elseif ($fileExtension -eq '.webm') {
-                    $attachmentsSection += "`n<video width=`"100%`" controls>`n"
-                    $attachmentsSection += "  <source src=`"./attachments/$prefixedFileName`" type=`"video/webm`">`n"
-                    $attachmentsSection += "  Your browser does not support the video tag.`n"
-                    $attachmentsSection += "</video>`n"
-                }
-                elseif ($fileExtension -in @('.avi', '.mov', '.mkv', '.flv')) {
-                    $attachmentsSection += "`n[🎬 $fileName](./attachments/$prefixedFileName)`n"
-                }
-                else {
-                    $attachmentsSection += "`n![$fileName](./attachments/$prefixedFileName)`n"
-                }
-            }
-        }
-    }
-    
     # Build location section with embedded map if latitude and longitude are present
     $locationSection = ""
     if ($null -ne $latitude -and $null -ne $longitude) {
@@ -321,7 +333,11 @@ $content$attachmentsSection$locationSection
     # Write to file
     Set-Content -LiteralPath $filePath -Value $markdownContent -Encoding UTF8
     Write-Host "Created: $filePath"
+    $entriesWritten++
 }
 
 Write-Host "Markdown conversion completed. Files created in '$diariumFolder'"
+Write-Host ""
+Write-Host "Entries Written/Skipped: $entriesWritten/$entriesSkipped"
+Write-Host "Attachments Written/Skipped: $attachmentsWritten/$attachmentsSkipped"
 
