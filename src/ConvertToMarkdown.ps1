@@ -158,6 +158,7 @@ foreach ($entry in $entries) {
     # Create year/month folder structure
     $yearFolder = Join-Path -Path $diariumFolder -ChildPath $year
     $monthFolder = Join-Path -Path $yearFolder -ChildPath $month
+    $attachmentsFolder = Join-Path -Path $monthFolder -ChildPath 'attachments'
     
     if (-not (Test-Path -LiteralPath $yearFolder)) {
         New-Item -Path $yearFolder -ItemType Directory | Out-Null
@@ -165,6 +166,10 @@ foreach ($entry in $entries) {
     
     if (-not (Test-Path -LiteralPath $monthFolder)) {
         New-Item -Path $monthFolder -ItemType Directory | Out-Null
+    }
+    
+    if (-not (Test-Path -LiteralPath $attachmentsFolder)) {
+        New-Item -Path $attachmentsFolder -ItemType Directory | Out-Null
     }
     
     # Create filename: YYYY-mm-dd - HH-mm tt.md (using hyphens instead of colons for NTFS compatibility)
@@ -200,19 +205,19 @@ longitude: $(if ($null -ne $longitude) { $longitude } else { "" })
     
     # Build attachments section and copy files
     $attachmentsSection = ""
+    $datePrefix = "$year-$month-$day"
     [array]$attachmentsArray = @($attachments)
     if ($attachmentsArray.Length -gt 0) {
         $attachmentsSection = "`n`n## Attachments`n"
         foreach ($attachment in $attachmentsArray) {
             $fileName = Split-Path -Path $attachment -Leaf
             $fileExtension = [System.IO.Path]::GetExtension($fileName).ToLower()
+            $baseFileName = [System.IO.Path]::GetFileNameWithoutExtension($fileName)
+            $prefixedFileName = "$datePrefix`_$baseFileName$fileExtension"
             
-            # Prefix filename with "z" so media files appear below markdown files
-            $prefixedFileName = "z_$fileName"
-            
-            # Copy the attachment file from media folder to markdown folder
+            # Copy the attachment file from media folder to attachments subfolder with date prefix
             $sourceFile = Join-Path -Path $ZipFolder -ChildPath $attachment
-            $destFile = Join-Path -Path $monthFolder -ChildPath $prefixedFileName
+            $destFile = Join-Path -Path $attachmentsFolder -ChildPath $prefixedFileName
             
             if (Test-Path -LiteralPath $sourceFile) {
                 Copy-Item -LiteralPath $sourceFile -Destination $destFile -Force | Out-Null
@@ -221,24 +226,24 @@ longitude: $(if ($null -ne $longitude) { $longitude } else { "" })
                 if ($fileExtension -eq '.mp4') {
                     # MP4 videos - embed with HTML5 video tag
                     $attachmentsSection += "`n<video width=`"100%`" controls>`n"
-                    $attachmentsSection += "  <source src=`"./$prefixedFileName`" type=`"video/mp4`">`n"
+                    $attachmentsSection += "  <source src=`"./attachments/$prefixedFileName`" type=`"video/mp4`">`n"
                     $attachmentsSection += "  Your browser does not support the video tag.`n"
                     $attachmentsSection += "</video>`n"
                 }
                 elseif ($fileExtension -eq '.webm') {
                     # WebM videos - embed with HTML5 video tag
                     $attachmentsSection += "`n<video width=`"100%`" controls>`n"
-                    $attachmentsSection += "  <source src=`"./$prefixedFileName`" type=`"video/webm`">`n"
+                    $attachmentsSection += "  <source src=`"./attachments/$prefixedFileName`" type=`"video/webm`">`n"
                     $attachmentsSection += "  Your browser does not support the video tag.`n"
                     $attachmentsSection += "</video>`n"
                 }
                 elseif ($fileExtension -in @('.avi', '.mov', '.mkv', '.flv')) {
                     # Other video formats - create link since they may not be natively supported
-                    $attachmentsSection += "`n[🎬 $fileName](./$prefixedFileName)`n"
+                    $attachmentsSection += "`n[🎬 $fileName](./attachments/$prefixedFileName)`n"
                 }
                 else {
                     # Image files and others - embed as image
-                    $attachmentsSection += "`n![$fileName](./$prefixedFileName)`n"
+                    $attachmentsSection += "`n![$fileName](./attachments/$prefixedFileName)`n"
                 }
             }
             else {
@@ -246,21 +251,21 @@ longitude: $(if ($null -ne $longitude) { $longitude } else { "" })
                 # Still add reference even if file not found
                 if ($fileExtension -eq '.mp4') {
                     $attachmentsSection += "`n<video width=`"100%`" controls>`n"
-                    $attachmentsSection += "  <source src=`"./$prefixedFileName`" type=`"video/mp4`">`n"
+                    $attachmentsSection += "  <source src=`"./attachments/$prefixedFileName`" type=`"video/mp4`">`n"
                     $attachmentsSection += "  Your browser does not support the video tag.`n"
                     $attachmentsSection += "</video>`n"
                 }
                 elseif ($fileExtension -eq '.webm') {
                     $attachmentsSection += "`n<video width=`"100%`" controls>`n"
-                    $attachmentsSection += "  <source src=`"./$prefixedFileName`" type=`"video/webm`">`n"
+                    $attachmentsSection += "  <source src=`"./attachments/$prefixedFileName`" type=`"video/webm`">`n"
                     $attachmentsSection += "  Your browser does not support the video tag.`n"
                     $attachmentsSection += "</video>`n"
                 }
                 elseif ($fileExtension -in @('.avi', '.mov', '.mkv', '.flv')) {
-                    $attachmentsSection += "`n[🎬 $fileName](./$prefixedFileName)`n"
+                    $attachmentsSection += "`n[🎬 $fileName](./attachments/$prefixedFileName)`n"
                 }
                 else {
-                    $attachmentsSection += "`n![$fileName](./$prefixedFileName)`n"
+                    $attachmentsSection += "`n![$fileName](./attachments/$prefixedFileName)`n"
                 }
             }
         }

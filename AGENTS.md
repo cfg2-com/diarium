@@ -1,7 +1,19 @@
-This is going to be a repository for working with the Diarium journaling software.
+# Diarium Utilities
 
-Scripts should use PowerShell so anyone on a Windows PC can run them without any additional software.
+This repository contains PowerShell scripts and utilities for working with [Diarium](https://diariumapp.com/en) journaling software.
 
-All source code belongs in the `/src` folder.
+## Overview
 
-All settings should be externalized/read from a config file with a template being created that the end user can copy to a file specified in .gitignore so their settings are not checked in.
+The primary utility here is `ConvertToMarkdown.ps1`, which exports your Diarium journal entries from zip exports and converts them to Markdown format with organized folder structures by date, plus attachments and location data.
+
+## Development Guidelines
+
+- **Scripts**: Use PowerShell so anyone on a Windows PC can run them without additional software
+- **Source Code**: All scripts belong in the `/src` folder
+- **Configuration**: Settings are externalized and read from `config.psd1`
+  - Users should copy `config.template.psd1` to `config.psd1` and customize it
+  - `config.psd1` is excluded from version control (don't check in personal settings)
+
+## Getting Started
+
+See [README.md](README.md) for setup and usage instructions.
