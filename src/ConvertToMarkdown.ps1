@@ -271,6 +271,7 @@ foreach ($entry in $entries) {
     $html = if ($entry | Get-Member -Name html -ErrorAction SilentlyContinue) { $entry.html } else { $null }
     $attachments = if ($entry | Get-Member -Name attachments -ErrorAction SilentlyContinue) { $entry.attachments } else { $null }
     $location = if ($entry | Get-Member -Name location -ErrorAction SilentlyContinue) { $entry.location } else { $null }
+    $tags = if ($entry | Get-Member -Name tags -ErrorAction SilentlyContinue) { $entry.tags } else { $null }
     
     # Normalize special characters in heading
     $heading = Normalize-SpecialCharacters -Text $heading
@@ -425,10 +426,30 @@ foreach ($entry in $entries) {
         continue
     }
     
-    # Build frontmatter
+    # Build frontmatter with tags
+    # Extract latitude and longitude from location array
     [array]$locationArray = @($location)
     $latitude = if ($locationArray.Length -gt 0) { $locationArray[0] } else { $null }
     $longitude = if ($locationArray.Length -gt 1) { $locationArray[1] } else { $null }
+    
+    [array]$tagsArray = @()
+    if ($null -ne $tags) {
+        if ($tags -is [array]) {
+            $tagsArray = $tags
+        }
+        elseif ($tags -is [string] -and -not [string]::IsNullOrWhiteSpace($tags)) {
+            $tagsArray = @($tags)
+        }
+    }
+    
+    # Format tags for YAML
+    $tagsYaml = ""
+    if ($tagsArray.Count -gt 0) {
+        $tagsYaml = "tags:`n" + ($tagsArray | ForEach-Object { "  - $_" } | Out-String).TrimEnd()
+    }
+    else {
+        $tagsYaml = "tags:"
+    }
     
     # Build header first to determine the title to use in frontmatter
     $titleForFrontmatter = ""
@@ -448,6 +469,7 @@ title: $titleForFrontmatter
 date: $dateString
 latitude: $(if ($null -ne $latitude) { $latitude } else { "" })
 longitude: $(if ($null -ne $longitude) { $longitude } else { "" })
+$tagsYaml
 ---
 "@
     
