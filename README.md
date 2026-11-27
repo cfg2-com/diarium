@@ -8,6 +8,7 @@ Scripts and utilities for exporting and converting [Diarium](https://diariumapp.
 - [Quick Start](#quick-start)
 - [Configuration](#configuration)
 - [Usage](#usage)
+  - [Overwrite Parameter](#overwrite-parameter)
 - [ConvertToMarkdown.ps1](#convertttomarkdownps1)
 - [Output Format](#output-format)
 - [Troubleshooting](#troubleshooting)
@@ -39,18 +40,27 @@ Create a `config.psd1` file in the `/src` folder by copying `config.template.psd
 ```powershell
 @{
     ZipFolder = 'C:\Users\you\Backup\Diarium'
+    Overwrite = $false
 }
 ```
 
 **Settings:**
 - `ZipFolder` (required): The folder where you export your Diarium zip files
+- `Overwrite` (optional, default: `$false`): If `$true`, overwrites existing markdown files and attachments. If `$false`, skips existing files and logs them as skipped
 
 ## Usage
 
 Run the script from PowerShell in the `/src` directory:
 
 ```powershell
+# Default: Skip existing files (safe, non-destructive)
 .\ConvertToMarkdown.ps1
+
+# Or with explicit folder path
+.\ConvertToMarkdown.ps1 -ZipFolder 'C:\Users\you\Backup\Diarium'
+
+# Overwrite all files (recreate markdown and attachments)
+.\ConvertToMarkdown.ps1 -Overwrite $true
 ```
 
 The script will:
@@ -59,6 +69,31 @@ The script will:
 3. Convert entries to Markdown format
 4. Organize by date in `Diarium\YYYY\MM` folders
 5. Include attachments and location data
+
+### Overwrite Parameter
+
+The script supports an optional `Overwrite` parameter to control whether existing files should be recreated:
+
+| Setting | Behavior |
+|---------|----------|
+| `-Overwrite $false` (default) | Skips existing markdown and attachment files; only creates new entries |
+| `-Overwrite $true` | Recreates all markdown and attachment files, overwriting existing ones |
+
+**Examples:**
+
+```powershell
+# Skip existing files (default behavior)
+.\ConvertToMarkdown.ps1
+
+# Force overwrite all files
+.\ConvertToMarkdown.ps1 -Overwrite $true
+
+# Or configure in config.psd1
+# Edit config.psd1 and set: Overwrite = $true
+# Then run: .\ConvertToMarkdown.ps1
+```
+
+When files are skipped, they are logged to the console with format: `Skipped: C:\path\to\file.md`
 
 ## ConvertToMarkdown.ps1
 
@@ -106,5 +141,8 @@ Each `.md` file contains your journal entry with metadata (location, date, attac
 
 **Issue**: Permission denied errors
 - **Solution**: Ensure you have read/write permissions to the `ZipFolder` and destination directories
+
+**Issue**: Files not being created when expected
+- **Solution**: Check if files already exist. If `Overwrite=false` (default), existing files are skipped. Use `-Overwrite $true` to force recreation, or manually delete existing files
 
 

@@ -11,16 +11,27 @@ config.psd1.
 .PARAMETER ZipFolder
 Path to the folder that contains the zip file to extract.
 
+.PARAMETER Overwrite
+If $true, overwrites existing markdown files and attachments.
+If $false (default), skips existing files and logs them as skipped.
+
 .EXAMPLE
 .\ConvertToMarkdown.ps1 -ZipFolder 'C:\Exports\Diarium'
+.\ConvertToMarkdown.ps1 -ZipFolder 'C:\Exports\Diarium' -Overwrite $true
 
 .NOTES
 If -ZipFolder is not provided, the script reads ZipFolder from
 config.psd1 in the script folder.
+
+If -Overwrite is not provided, the script reads Overwrite from
+config.psd1 in the script folder (default: $false).
 #>
 param(
     [Parameter(Mandatory = $false)]
-    [string]$ZipFolder
+    [string]$ZipFolder,
+    
+    [Parameter(Mandatory = $false)]
+    [bool]$Overwrite = $false
 )
 
 Set-StrictMode -Version Latest
@@ -40,6 +51,10 @@ if ([string]::IsNullOrWhiteSpace($ZipFolder) -and (Test-Path -LiteralPath $confi
     
     if ($null -ne $config -and $config.ContainsKey('ZipFolder')) {
         $ZipFolder = [string]$config.ZipFolder
+    }
+    
+    if ($null -ne $config -and $config.ContainsKey('Overwrite')) {
+        $Overwrite = [bool]$config.Overwrite
     }
 }
 
@@ -176,6 +191,12 @@ foreach ($entry in $entries) {
     $fileName = "$year-$month-$day - $timeFormatted.md"
     $filePath = Join-Path -Path $monthFolder -ChildPath $fileName
     
+    # Check if file exists and Overwrite is false
+    if ((Test-Path -LiteralPath $filePath) -and -not $Overwrite) {
+        Write-Host "Skipped: $filePath"
+        continue
+    }
+    
     # Build frontmatter
     [array]$locationArray = @($location)
     $latitude = if ($locationArray.Length -gt 0) { $locationArray[0] } else { $null }
@@ -219,8 +240,17 @@ longitude: $(if ($null -ne $longitude) { $longitude } else { "" })
             $sourceFile = Join-Path -Path $ZipFolder -ChildPath $attachment
             $destFile = Join-Path -Path $attachmentsFolder -ChildPath $prefixedFileName
             
+            # Check if destination exists and Overwrite is false
+            $shouldCopy = $true
+            if ((Test-Path -LiteralPath $destFile) -and -not $Overwrite) {
+                Write-Host "Skipped: $destFile"
+                $shouldCopy = $false
+            }
+            
             if (Test-Path -LiteralPath $sourceFile) {
-                Copy-Item -LiteralPath $sourceFile -Destination $destFile -Force | Out-Null
+                if ($shouldCopy) {
+                    Copy-Item -LiteralPath $sourceFile -Destination $destFile -Force | Out-Null
+                }
                 
                 # Handle different media types
                 if ($fileExtension -eq '.mp4') {
