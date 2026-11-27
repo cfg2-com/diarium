@@ -266,13 +266,21 @@ longitude: $(if ($null -ne $longitude) { $longitude } else { "" })
         }
     }
     
+    # Build location section with embedded map if latitude and longitude are present
+    $locationSection = ""
+    if ($null -ne $latitude -and $null -ne $longitude) {
+        $locationSection = "`n`n## Location`n"
+        $locationSection += "[View on map](https://www.openstreetmap.org/?mlat=$latitude&mlon=$longitude&zoom=15)`n"
+        $locationSection += "`n<iframe src=`"https://www.openstreetmap.org/export/embed.html?bbox=$($longitude - 0.01),$($latitude - 0.01),$($longitude + 0.01),$($latitude + 0.01)&layer=mapnik&marker=$latitude,$longitude`" width=`"100%`" height=`"400px`" frameborder=`"0`" style=`"border:0`"></iframe>`n"
+    }
+    
     # Combine all parts
     $markdownContent = @"
 $frontmatter
 
 $header
 
-$content$attachmentsSection
+$content$attachmentsSection$locationSection
 "@
     
     # Write to file
