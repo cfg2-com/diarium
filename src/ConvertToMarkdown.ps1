@@ -619,6 +619,21 @@ function Generate-YearIndex {
     foreach ($monthFolder in $monthFolders) {
         $monthName = [datetime]::ParseExact("$Year-$($monthFolder.Name)", "yyyy-MM", $null).ToString('MMMM')
         $content += "- [$monthName](./$($monthFolder.Name)/_index.md)`n"
+        
+        # Add entries from this month as a sublist
+        $entries = @(Get-ChildItem -Path $monthFolder.FullName -Filter '*.md' -ErrorAction SilentlyContinue | 
+            Where-Object { $_.Name -ne '_index.md' } | 
+            Sort-Object Name)
+        
+        foreach ($entry in $entries) {
+            $heading = Get-H1HeaderFromMarkdown -FilePath $entry.FullName
+            if ($null -eq $heading) {
+                $heading = $entry.Name -replace '\.md$', ''
+            }
+            
+            $relativePath = "./$($monthFolder.Name)/$($entry.Name)"
+            $content += "   - [$heading]($relativePath)`n"
+        }
     }
     
     # Always overwrite index files (regardless of Overwrite parameter)
